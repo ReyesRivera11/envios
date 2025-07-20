@@ -1,26 +1,39 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS, cross_origin
 import joblib
 import pandas as pd
 
 app = Flask(__name__)
 
-# === Cargar modelos ===
+# CORS solo en rutas específicas
+cors_config = {
+    "origins": ["http://localhost:5173","https://cayro.netlify.app"],  # o usa ["http://localhost:5173", "https://tudominio.com"] para mayor seguridad
+    "methods": ["POST"],
+    "allow_headers": ["Content-Type"]
+}
+
+# === Cargar modelos entrenados ===
 encoder = joblib.load("encoder.pkl")
 scaler = joblib.load("scaler.pkl")
 model = joblib.load("random_forest_model.pkl")
 
+# === Ruta simple para probar si el backend está vivo ===
+@app.route("/ping", methods=["GET"])
+@cross_origin(**cors_config)
+def ping():
+    return jsonify({"message": "pong"}), 200
+
 # === Ruta principal para predicción ===
 @app.route("/predict", methods=["POST"])
+@cross_origin(**cors_config)
 def predict():
     try:
         data = request.get_json()
 
-        # Verificar campos requeridos
         required_fields = ["subtotalAmount", "totalAmount", "num_items", "total_quantity", "state"]
         if not all(field in data for field in required_fields):
             return jsonify({"error": "Faltan campos requeridos"}), 400
 
-        # Crear DataFrame
         df = pd.DataFrame([{
             "subtotalAmount": float(data["subtotalAmount"]),
             "totalAmount": float(data["totalAmount"]),
@@ -29,13 +42,8 @@ def predict():
             "state": data["state"]
         }])
 
-        # Codificar
         df[["state"]] = encoder.transform(df[["state"]])
-
-        # Escalar
         X_scaled = scaler.transform(df)
-
-        # Predecir
         prediction = round(model.predict(X_scaled)[0], 2)
 
         return jsonify({"shipping_cost_prediction": prediction})
